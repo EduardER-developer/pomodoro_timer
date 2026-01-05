@@ -2,151 +2,152 @@
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
-#include <string.h>
+#include <termios.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #define CLEAR "clear"
 
-// Функции для воспроизведения звука на macOS
-void play_sound_mac() {
-    // Вариант 1: Используем системный звук через afplay (наиболее надежный)
-    system("afplay /System/Library/Sounds/Glass.aiff 2>/dev/null");
+int kbhit(void) {
+    struct termios oldt, newt;
+    int ch;
+    int oldf;
     
-    // Вариант 2: Можно использовать say для голосового уведомления
-    // system("say 'Таймер завершен' &");
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+    oldf = fcntl(STDIN_FILENO, F_GETFL, 0);
+    fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
+    
+    ch = getchar();
+    
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    fcntl(STDIN_FILENO, F_SETFL, oldf);
+    
+    if(ch != EOF) {
+        ungetc(ch, stdin);
+        return 1;
+    }
+    
+    return 0;
 }
 
-// Альтернатива: использовать Terminal Bell и дополнительные звуки
-void play_beep_sequence() {
-    // Сначала системный beep
-    printf("\a");
-    fflush(stdout);
-    
-    // Затем более заметный звук через afplay
+void play_sound() {
     system("afplay /System/Library/Sounds/Ping.aiff 2>/dev/null");
-    
-    // Небольшая задержка
-    sleep(1);
-    
-    // Еще один звук для надежности
-    system("afplay /System/Library/Sounds/Pop.aiff 2>/dev/null 2>/dev/null");
 }
 
-// Функция для проверки доступности звуковых утилит
-int check_audio_available() {
-    int result = system("which afplay > /dev/null 2>&1");
-    return (result == 0);
-}
-
-// Функция отображения прогресс-бара
-void display_progress(int elapsed, int total, const char* label) {
-    float progress = (float)elapsed / total;
-    int bar_width = 50;
-    int pos = bar_width * progress;
-    
+void display_timer(int elapsed, int total, const char* label, int paused) {
     system(CLEAR);
     printf("\n=== ТАЙМЕР ПОМОДОРО ===\n\n");
+    
+    if (paused) {
+        printf("⏸️  \x1b[33m[ПАУЗА]\x1b[0m\n");
+    }
+    
     printf("%s\n", label);
     printf("Время: %02d:%02d / %02d:00\n\n", 
            elapsed / 60, elapsed % 60, total / 60);
     
+    int width = 40;
+    int progress = (elapsed * width) / total;
     printf("[");
-    for (int i = 0; i < bar_width; i++) {
-        if (i < pos) printf("=");
-        else if (i == pos) printf(">");
-        else printf(" ");
+    for (int i = 0; i < width; i++) {
+        if (i < progress) printf("#");
+        else printf(".");
     }
-    printf("] %.1f%%\n\n", progress * 100);
+    printf("]\n\n");
     
-    printf("Нажмите Ctrl+C для выхода\n");
-    fflush(stdout);
-}
-
-// Функция таймера
-void start_timer(int minutes, const char* label) {
-    int total_seconds = minutes * 60;
-    int elapsed = 0;
-    
-    while (elapsed <= total_seconds) {
-        display_progress(elapsed, total_seconds, label);
-        sleep(1);
-        elapsed++;
-    }
-    
-    // Воспроизводим звук по окончании
-    printf("\n\x1b[1;32mВремя вышло!\x1b[0m %s\n", label);
-    printf("\x1b[33m♫ ♪ ♫ Звуковое уведомление... ♫ ♪ ♫\x1b[0m\n\n");
-    fflush(stdout);
-    
-    // Проверяем доступность звука
-    if (check_audio_available()) {
-        play_sound_mac();
-    } else {
-        play_beep_sequence();
-    }
-    
-    // Ждем немного перед продолжением
-    printf("Следующий этап через 3 секунды...\n");
-    sleep(3);
+    printf("Управление: [ПРОБЕЛ] - пауза, [Q] - выход\n");
 }
 
 int main() {
+    int work_time = 45 * 60;
+    int break_time = 5 * 60;
+    int paused = 0;
+    int should_quit = 0;
     int pomodoro_count = 0;
-    int audio_available = check_audio_available();
     
     printf("=== ТАЙМЕР ПОМОДОРО ===\n");
-    printf("Режим: 45 минут работы / 5 минут отдыха\n");
-    
-    if (audio_available) {
-        printf("Статус звука: \x1b[32mдоступен\x1b[0m (используется afplay)\n");
-    } else {
-        printf("Статус звука: \x1b[33mограничен\x1b[0m (используется системный beep)\n");
-        printf("Для лучшего звука убедитесь, что afplay доступен\n");
-    }
-    
-    printf("\nТаймер запущен...\n");
+    printf("Пауза по пробелу. Начинаем через 2 секунды...\n");
     sleep(2);
     
-    // Список звуков для разнообразия (если доступны)
-    const char* sounds[] = {
-        "/System/Library/Sounds/Glass.aiff",
-        "/System/Library/Sounds/Ping.aiff",
-        "/System/Library/Sounds/Pop.aiff",
-        "/System/Library/Sounds/Blow.aiff",
-        "/System/Library/Sounds/Bottle.aiff",
-        "/System/Library/Sounds/Funk.aiff",
-        "/System/Library/Sounds/Morse.aiff",
-        "/System/Library/Sounds/Tink.aiff"
-    };
-    int sound_count = 8;
-    
-    while (1) {
+    while (!should_quit) {
         pomodoro_count++;
         
-        printf("\n=== Помодоро #%d ===\n", pomodoro_count);
-        start_timer(45, "\x1b[31mРАБОТАЙТЕ! (45 минут)\x1b[0m");
-        
-        // Для разнообразия чередуем звуки
-        if (audio_available) {
-            char sound_command[100];
-            snprintf(sound_command, sizeof(sound_command), 
-                    "afplay \"%s\" 2>/dev/null", 
-                    sounds[pomodoro_count % sound_count]);
-            system(sound_command);
+        // Рабочий таймер
+        printf("\n=== Помодоро #%d (Работа) ===\n", pomodoro_count);
+        for (int i = 0; i <= work_time && !should_quit; i++) {
+            display_timer(i, work_time, "РАБОТАЙТЕ!", paused);
+            
+            if (kbhit()) {
+                char c = getchar();
+                if (c == ' ') {
+                    paused = !paused;
+                    if (paused) {
+                        printf("\n\x1b[33mПауза! Нажмите ПРОБЕЛ для продолжения\x1b[0m\n");
+                    }
+                } else if (c == 'q' || c == 'Q') {
+                    should_quit = 1;
+                    break;
+                }
+            }
+            
+            if (!paused) {
+                sleep(1);
+            } else {
+                usleep(100000);
+                i--; 
+		   	}
         }
         
-        start_timer(5, "\x1b[32mОТДЫХАЙТЕ! (5 минут)\x1b[0m");
+        if (!should_quit) {
+            play_sound();
+            printf("\n\x1b[32mВремя работы закончилось! Начинается перерыв.\x1b[0m\n");
+            sleep(2);
+        }
         
-        if (pomodoro_count % 4 == 0) {
-            printf("\n=== ДЛИННЫЙ ПЕРЕРЫВ (15 минут) ===\n");
-            printf("\x1b[36mВы завершили 4 помодоро!\x1b[0m\n");
-            start_timer(15, "\x1b[36mДЛИННЫЙ ПЕРЕРЫВ! (15 минут)\x1b[0m");
+        // Перерыв
+        if (!should_quit) {
+            printf("\n=== Перерыв ===\n");
+            for (int i = 0; i <= break_time && !should_quit; i++) {
+                display_timer(i, break_time, "ОТДЫХАЙТЕ!", paused);
+                
+                if (kbhit()) {
+                    char c = getchar();
+                    if (c == ' ') {
+                        paused = !paused;
+                    } else if (c == 'q' || c == 'Q') {
+                        should_quit = 1;
+                        break;
+                    } else if (c == 's' || c == 'S') {
+                        i = break_time;
+                    }
+                }
+                
+                if (!paused) {
+                    sleep(1);
+                } else {
+                    usleep(100000);
+                    i--;
+                }
+            }
             
-            // Особый звук для длинного перерыва
-            if (audio_available) {
-                system("afplay /System/Library/Sounds/Fanfare.aiff 2>/dev/null");
+            if (!should_quit) {
+                play_sound();
+                printf("\n\x1b[32mПерерыв закончился! Возвращайтесь к работе.\x1b[0m\n");
+                sleep(2);
             }
         }
+        
+        // Длинный перерыв после 4 помодоро
+        if (pomodoro_count % 4 == 0 && !should_quit) {
+            printf("\n\x1b[36m Длинный перерыв 15 минут! Вы хорошо поработали!\x1b[0m\n");
+            sleep(3);
+        }
     }
+    
+    printf("\n\x1b[35mТаймер остановлен. До свидания!\x1b[0m\n");
     
     return 0;
 }

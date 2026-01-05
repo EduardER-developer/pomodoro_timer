@@ -123,7 +123,7 @@ int main() {
         pomodoro_count++;
         
         printf("\n=== Помодоро #%d ===\n", pomodoro_count);
-        start_timer(1, "\x1b[31mРАБОТАЙТЕ! (45 минут)\x1b[0m");
+        start_timer(45, "\x1b[31mРАБОТАЙТЕ! (45 минут)\x1b[0m");
         
         // Для разнообразия чередуем звуки
         if (audio_available) {
